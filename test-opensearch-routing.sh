@@ -16,12 +16,16 @@ check_opensearch() {
             # https://gallery.ecr.aws/opensearchproject/opensearch
             docker run -d -p 9200:9200 -p 9600:9600 \
                 -e "discovery.type=single-node" \
+                -e "DISABLE_SECURITY_PLUGIN=true" \
+                -e "DISABLE_INSTALL_DEMO_CONFIG=true" \
                 -e "OPENSEARCH_INITIAL_ADMIN_PASSWORD=admin" \
                 public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}
         else
             # For OpenSearch 1.x versions
             docker run -d -p 9200:9200 \
                 -e "discovery.type=single-node" \
+                -e "DISABLE_SECURITY_PLUGIN=true" \
+                -e "DISABLE_INSTALL_DEMO_CONFIG=true" \
                 public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}
         fi
 
@@ -179,3 +183,8 @@ fi
 check_opensearch
 demonstrate_routing_bug
 
+container_id=$(docker ps -q --filter "publish=9200")
+if [ ! -z "$container_id" ]; then
+    echo "Stopping OpenSearch container..."
+    docker stop "$container_id"
+fi
