@@ -21,17 +21,18 @@ All documents with the same routing value get assigned to the same shard, instea
 ## Running the Test
 
 ```bash
-./opensearch_routing_bug.sh
+# run with opensearch 1, 2, 3 release (from tags: https://gallery.ecr.aws/opensearchproject/opensearch)
+# have only tested so far with 1 or 2
+./opensearch_routing_bug.sh 1
 ```
 
 The script will:
 - Check if OpenSearch is running locally
-- Offer to start OpenSearch 1.3.13 or 2.x if needed
 - Create two test indices:
   1. With `number_of_routing_shards`
   2. Without `number_of_routing_shards`
 - Insert test documents with the same routing value
-- Show shard distribution for both cases
+- Show shard distribution for both cases and assert whether the behavior has changed or not
 
 ## Expected vs Actual Behavior
 
@@ -42,13 +43,3 @@ Actual:
 - With `number_of_routing_shards`: Documents are correctly distributed
 - Without `number_of_routing_shards`: All documents go to the same shard
 
-## Requirements
-
-- Docker
-- Bash
-- curl
-
-## Versions Tested
-
-- OpenSearch 1.3.13
-- OpenSearch 2.x (latest)
