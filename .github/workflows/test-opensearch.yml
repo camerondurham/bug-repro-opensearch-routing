@@ -1,0 +1,44 @@
+name: Test OpenSearch Routing Bug
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0'  # Run every Sunday at midnight UTC
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        opensearch-version: ['1', '2', 'latest']
+      fail-fast: false  # Continue with other versions if one fails
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install jq
+      run: sudo apt-get install -y jq
+
+    - name: Run test script
+      run: |
+        chmod +x ./test-opensearch-routing.sh
+        ./test-opensearch-routing.sh ${{ matrix.opensearch-version }}
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results-${{ matrix.opensearch-version }}
+        path: |
+          test-results.txt
+        retention-days: 14
+
+    - name: Check test results
+      run: |
+        if grep -q "❌ FAIL" test-results.txt; then
+          echo "Tests failed for OpenSearch ${{ matrix.opensearch-version }}"
+          exit 1
+        fi
+
