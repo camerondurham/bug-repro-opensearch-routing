@@ -1,15 +1,18 @@
 # OpenSearch Routing Partition Size Bug Reproduction
 
+This status badge "passing" means that you still have to remember to set `number_of_routing_shards` AND `routing_partition_size` when creating the index in order to have equally distributed writes in OpenSearch.
+
 [![Test OpenSearch Routing Bug](https://github.com/camerondurham/bug-repro-opensearch-routing/actions/workflows/test-opensearch.yml/badge.svg)](https://github.com/camerondurham/bug-repro-opensearch-routing/actions/workflows/test-opensearch.yml)
 
-This is a test script to try reproducing some unexpected behavior with index routing when you don't set `number_of_routing_shards` AND `routing_partition_size` on index creation, causing all documents to be routed to a single shard instead of being distributed.
-
-See OpenSearch current documentation: [Routing: Routing To Specific Shards](https://docs.opensearch.org/docs/latest/field-types/metadata-fields/routing/#routing-to-specific-shards)
-
-## Related Issues
+This repo just contains a test script reproducing the last known behavior until the related issue is fixed in OpenSearch:
 
 - [OpenSearch #17472](https://github.com/opensearch-project/OpenSearch/issues/17472) - Index setting partition size is ignored if routing num shard setting is not specified
-- [Elasticsearch #48863](https://github.com/elastic/elasticsearch/issues/48863) - Original Elasticsearch issue describing the same behavior
+
+
+Also see:
+
+- OpenSearch current documentation: [Routing: Routing To Specific Shards](https://docs.opensearch.org/docs/latest/field-types/metadata-fields/routing/#routing-to-specific-shards)
+- [Elasticsearch #48863](https://github.com/elastic/elasticsearch/issues/48863) - Original Elasticsearch issue describing the same behavior from before the OpenSearch fork
 
 ## Bug Description
 
