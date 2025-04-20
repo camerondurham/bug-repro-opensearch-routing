@@ -3,7 +3,7 @@
 set -e
 
 OPENSEARCH_URL="http://localhost:9200"
-OPENSEARCH_VERSION=${1:-"1.3.13"}  # Default to 1.3.13 if no argument provided
+OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
 
 echo "Testing OpenSearch version: ${OPENSEARCH_VERSION}"
 
@@ -47,7 +47,6 @@ create_index() {
     local with_routing_shards=$2
     local settings
 
-    # Delete index if it exists
     curl -s -XDELETE "${OPENSEARCH_URL}/${index_name}" > /dev/null
 
     if [ "$with_routing_shards" = true ]; then
@@ -105,27 +104,15 @@ insert_test_documents() {
 check_shards_distribution() {
     local index_name=$1
     local routing_value="42"
-
-    echo "Checking shard distribution for routing value ${routing_value}:"
-    echo "Number of shards and their details:"
-    curl -s -XGET "${OPENSEARCH_URL}/${index_name}/_search_shards?routing=${routing_value}&pretty"
-}
-
-check_shards_distribution() {
-    local index_name=$1
-    local routing_value="42"
     local expected_shards=2
 
     echo "Checking shard distribution for routing value ${routing_value}:"
     echo "Number of shards and their details:"
     
-    # Get the shards response and store it
     local response=$(curl -s -XGET "${OPENSEARCH_URL}/${index_name}/_search_shards?routing=${routing_value}")
     
-    # Display pretty-printed response
     echo "$response" | jq -c '.shards[]'
     
-    # Count unique shards that would be used for the routing value
     local shard_count=$(echo "$response" | jq '.shards | length')
     
     echo -e "\nResults for ${index_name}:"
@@ -151,23 +138,11 @@ demonstrate_routing_bug() {
     insert_test_documents "test_without_routing"
     check_shards_distribution "test_without_routing"
     
-    # Summary of results
     echo -e "\n=== Test Summary ==="
     echo "The bug is present if:"
     echo "1. Test with number_of_routing_shards passes (shows 2 shards)"
     echo "2. Test without number_of_routing_shards fails (shows 1 shard)"
     echo "This demonstrates that routing_partition_size is ignored when number_of_routing_shards is not set"
-}
-cleanup_docker() {
-    echo "Would you like to clean up the Docker container when done? (y/n)"
-    read -r cleanup_choice
-    if [[ $cleanup_choice =~ ^[Yy]$ ]]; then
-        container_id=$(docker ps -q --filter "publish=9200")
-        if [ ! -z "$container_id" ]; then
-            echo "Stopping OpenSearch container..."
-            docker stop "$container_id"
-        fi
-    fi
 }
 
 if ! command -v docker &> /dev/null; then
