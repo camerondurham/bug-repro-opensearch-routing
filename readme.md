@@ -1,5 +1,7 @@
 # OpenSearch Routing Partition Size Bug Reproduction
 
+[![Test OpenSearch Routing Bug](https://github.com/camerondurham/bug-repro-opensearch-routing/actions/workflows/test-opensearch.yml/badge.svg)](https://github.com/camerondurham/bug-repro-opensearch-routing/actions/workflows/test-opensearch.yml)
+
 This is a test script to try reproducing some unexpected behavior with index routing when you don't set `number_of_routing_shards` AND `routing_partition_size` on index creation, causing all documents to be routed to a single shard instead of being distributed.
 
 See OpenSearch current documentation: [Routing: Routing To Specific Shards](https://docs.opensearch.org/docs/latest/field-types/metadata-fields/routing/#routing-to-specific-shards)
