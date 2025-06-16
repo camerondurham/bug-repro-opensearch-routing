@@ -7,15 +7,16 @@ OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
 
 echo "Testing OpenSearch version: ${OPENSEARCH_VERSION}"
 
-# Function to retry commands
+# Function to retry commands with exponential backoff
 retry_command() {
     local cmd="$1"
     local max_attempts=3
     local attempt=1
     local exit_code=0
+    local wait_time=10  # Starting with a longer wait time
 
     while [[ $attempt -le $max_attempts ]]; do
-        echo "Attempt $attempt of $max_attempts: Running Docker command..."
+        echo "Attempt $attempt of $max_attempts: Running command..."
         
         # Execute the command
         eval "$cmd"
@@ -24,43 +25,80 @@ retry_command() {
         if [[ $exit_code -eq 0 ]]; then
             return 0
         else
-            echo "Attempt $attempt failed with exit code $exit_code. Retrying in 5 seconds..."
-            sleep 5
-            ((attempt++))
+            echo "Attempt $attempt failed with exit code $exit_code."
+            if [[ $attempt -lt $max_attempts ]]; then
+                echo "Waiting ${wait_time} seconds before retry..."
+                sleep $wait_time
+                # Exponential backoff: double the wait time for next attempt
+                wait_time=$((wait_time * 2))
+                ((attempt++))
+            else
+                echo "All $max_attempts attempts failed!"
+                return $exit_code
+            fi
         fi
     done
+}
+
+# Function to safely pull Docker image
+pull_docker_image() {
+    local image_name="$1"
+    echo "Pulling Docker image: $image_name"
     
-    echo "All $max_attempts attempts failed!"
-    return $exit_code
+    # Check if image already exists locally
+    if docker image inspect "$image_name" &>/dev/null; then
+        echo "Image already exists locally, skipping pull."
+        return 0
+    fi
+    
+    # Try to pull the image
+    retry_command "docker pull $image_name"
+    return $?
 }
 
 check_opensearch() {
     if ! curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null; then
         echo "Starting OpenSearch ${OPENSEARCH_VERSION}..."
         
+        local image_name="public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}"
+        
+        # First pull the Docker image
+        if ! pull_docker_image "$image_name"; then
+            echo "Failed to pull Docker image after multiple attempts. Trying to continue with existing image..."
+        fi
+        
+        # Then run the container
         if [[ "${OPENSEARCH_VERSION}" == "2."* || "${OPENSEARCH_VERSION}" == "latest" ]]; then
             # For OpenSearch after 2.12
-            # https://gallery.ecr.aws/opensearchproject/opensearch
             retry_command "docker run -d -p 9200:9200 -p 9600:9600 \
                 -e \"discovery.type=single-node\" \
                 -e \"DISABLE_SECURITY_PLUGIN=true\" \
                 -e \"DISABLE_INSTALL_DEMO_CONFIG=true\" \
                 -e \"OPENSEARCH_INITIAL_ADMIN_PASSWORD=[REDACTED:PASSWORD]\" \
-                public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}"
+                $image_name"
         else
             # For OpenSearch 1.x versions
             retry_command "docker run -d -p 9200:9200 \
                 -e \"discovery.type=single-node\" \
                 -e \"DISABLE_SECURITY_PLUGIN=true\" \
                 -e \"DISABLE_INSTALL_DEMO_CONFIG=true\" \
-                public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}"
+                $image_name"
         fi
 
         echo "Waiting for OpenSearch to start..."
-        until curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null; do
+        local max_wait=60  # Maximum wait time in seconds
+        local elapsed=0
+        until curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null || [ $elapsed -ge $max_wait ]; do
             echo -n "."
             sleep 1
+            ((elapsed++))
         done
+        
+        if [ $elapsed -ge $max_wait ]; then
+            echo -e "\nTimeout waiting for OpenSearch to start!"
+            return 1
+        fi
+        
         echo -e "\nOpenSearch is ready!"
     else
         echo "OpenSearch is already running"
