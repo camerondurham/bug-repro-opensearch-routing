@@ -57,7 +57,7 @@ pull_docker_image() {
 }
 
 check_opensearch() {
-    if ! curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null; then
+    if ! curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null 2>&1; then
         echo "Starting OpenSearch ${OPENSEARCH_VERSION}..."
         
         local image_name="public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}"
@@ -68,38 +68,78 @@ check_opensearch() {
         fi
         
         # Then run the container
+        local container_id=""
         if [[ "${OPENSEARCH_VERSION}" == "2."* || "${OPENSEARCH_VERSION}" == "latest" ]]; then
             # For OpenSearch after 2.12
-            retry_command "docker run -d -p 9200:9200 -p 9600:9600 \
-                -e \"discovery.type=single-node\" \
-                -e \"DISABLE_SECURITY_PLUGIN=true\" \
-                -e \"DISABLE_INSTALL_DEMO_CONFIG=true\" \
-                -e \"OPENSEARCH_INITIAL_ADMIN_PASSWORD=[REDACTED:PASSWORD]\" \
-                $image_name"
+            container_id=$(docker run -d -p 9200:9200 -p 9600:9600 \
+                -e "discovery.type=single-node" \
+                -e "DISABLE_SECURITY_PLUGIN=true" \
+                -e "DISABLE_INSTALL_DEMO_CONFIG=true" \
+                -e "OPENSEARCH_INITIAL_ADMIN_PASSWORD=admin" \
+                "$image_name")
         else
             # For OpenSearch 1.x versions
-            retry_command "docker run -d -p 9200:9200 \
-                -e \"discovery.type=single-node\" \
-                -e \"DISABLE_SECURITY_PLUGIN=true\" \
-                -e \"DISABLE_INSTALL_DEMO_CONFIG=true\" \
-                $image_name"
+            container_id=$(docker run -d -p 9200:9200 \
+                -e "discovery.type=single-node" \
+                -e "DISABLE_SECURITY_PLUGIN=true" \
+                -e "DISABLE_INSTALL_DEMO_CONFIG=true" \
+                "$image_name")
         fi
 
+        if [ -z "$container_id" ]; then
+            echo "Failed to start OpenSearch container!"
+            return 1
+        fi
+        
+        echo "Container started with ID: $container_id"
+        
+        # Wait a bit before checking logs to give the container time to output initial logs
+        sleep 5
+        
+        # Show container logs for debugging
+        echo "Container logs:"
+        docker logs "$container_id"
+        
         echo "Waiting for OpenSearch to start..."
-        local max_wait=60  # Maximum wait time in seconds
+        local max_wait=120  # Increased maximum wait time in seconds
         local elapsed=0
-        until curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null || [ $elapsed -ge $max_wait ]; do
+        local success=false
+        
+        while [ $elapsed -lt $max_wait ]; do
+            if curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null 2>&1; then
+                success=true
+                break
+            fi
+            
+            # Every 15 seconds, check container status
+            if [ $((elapsed % 15)) -eq 0 ] && [ $elapsed -gt 0 ]; then
+                echo -e "\nChecking container status at ${elapsed}s:"
+                if ! docker ps | grep -q "$container_id"; then
+                    echo "Container is no longer running! Here are the logs:"
+                    docker logs "$container_id"
+                    return 1
+                fi
+                # Show recent logs
+                echo "Recent logs:"
+                docker logs --tail 10 "$container_id"
+            fi
+            
             echo -n "."
             sleep 1
             ((elapsed++))
         done
         
-        if [ $elapsed -ge $max_wait ]; then
-            echo -e "\nTimeout waiting for OpenSearch to start!"
+        echo ""
+        
+        if [ "$success" = true ]; then
+            echo "OpenSearch is ready after ${elapsed} seconds!"
+            return 0
+        else
+            echo "Timeout waiting for OpenSearch to start after ${max_wait} seconds!"
+            echo "Final container logs:"
+            docker logs "$container_id"
             return 1
         fi
-        
-        echo -e "\nOpenSearch is ready!"
     else
         echo "OpenSearch is already running"
         version_info=$(curl -s "${OPENSEARCH_URL}" | jq -r '.version | "OpenSearch \(.number) (\(.distribution))"')
@@ -210,6 +250,9 @@ demonstrate_routing_bug() {
     echo "This demonstrates that routing_partition_size is ignored when number_of_routing_shards is not set"
 }
 
+# Ensure we capture errors
+set -o pipefail
+
 if ! command -v docker &> /dev/null; then
     echo "Docker is not installed. Please install Docker first."
     exit 1
@@ -220,7 +263,12 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-check_opensearch
+# Main execution with better error handling
+if ! check_opensearch; then
+    echo "Failed to start OpenSearch! Exiting."
+    exit 1
+fi
+
 demonstrate_routing_bug
 
 container_id=$(docker ps -q --filter "publish=9200")
