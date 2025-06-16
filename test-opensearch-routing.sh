@@ -7,6 +7,33 @@ OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
 
 echo "Testing OpenSearch version: ${OPENSEARCH_VERSION}"
 
+# Function to retry commands
+retry_command() {
+    local cmd="$1"
+    local max_attempts=3
+    local attempt=1
+    local exit_code=0
+
+    while [[ $attempt -le $max_attempts ]]; do
+        echo "Attempt $attempt of $max_attempts: Running Docker command..."
+        
+        # Execute the command
+        eval "$cmd"
+        exit_code=$?
+        
+        if [[ $exit_code -eq 0 ]]; then
+            return 0
+        else
+            echo "Attempt $attempt failed with exit code $exit_code. Retrying in 5 seconds..."
+            sleep 5
+            ((attempt++))
+        fi
+    done
+    
+    echo "All $max_attempts attempts failed!"
+    return $exit_code
+}
+
 check_opensearch() {
     if ! curl -s "${OPENSEARCH_URL}/_cluster/health" > /dev/null; then
         echo "Starting OpenSearch ${OPENSEARCH_VERSION}..."
@@ -14,19 +41,19 @@ check_opensearch() {
         if [[ "${OPENSEARCH_VERSION}" == "2."* || "${OPENSEARCH_VERSION}" == "latest" ]]; then
             # For OpenSearch after 2.12
             # https://gallery.ecr.aws/opensearchproject/opensearch
-            docker run -d -p 9200:9200 -p 9600:9600 \
-                -e "discovery.type=single-node" \
-                -e "DISABLE_SECURITY_PLUGIN=true" \
-                -e "DISABLE_INSTALL_DEMO_CONFIG=true" \
-                -e "OPENSEARCH_INITIAL_ADMIN_PASSWORD=admin" \
-                public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}
+            retry_command "docker run -d -p 9200:9200 -p 9600:9600 \
+                -e \"discovery.type=single-node\" \
+                -e \"DISABLE_SECURITY_PLUGIN=true\" \
+                -e \"DISABLE_INSTALL_DEMO_CONFIG=true\" \
+                -e \"OPENSEARCH_INITIAL_ADMIN_PASSWORD=[REDACTED:PASSWORD]\" \
+                public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}"
         else
             # For OpenSearch 1.x versions
-            docker run -d -p 9200:9200 \
-                -e "discovery.type=single-node" \
-                -e "DISABLE_SECURITY_PLUGIN=true" \
-                -e "DISABLE_INSTALL_DEMO_CONFIG=true" \
-                public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}
+            retry_command "docker run -d -p 9200:9200 \
+                -e \"discovery.type=single-node\" \
+                -e \"DISABLE_SECURITY_PLUGIN=true\" \
+                -e \"DISABLE_INSTALL_DEMO_CONFIG=true\" \
+                public.ecr.aws/opensearchproject/opensearch:${OPENSEARCH_VERSION}"
         fi
 
         echo "Waiting for OpenSearch to start..."
