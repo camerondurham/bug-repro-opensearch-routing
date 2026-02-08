@@ -28,7 +28,7 @@ All documents with the same routing value get assigned to the same shard, instea
 ```bash
 # run with opensearch 1, 2, 3 release (from tags: https://gallery.ecr.aws/opensearchproject/opensearch)
 # have only tested so far with 1 or 2
-./opensearch_routing_bug.sh 1
+./test-opensearch-routing.sh 1
 ```
 
 The script will:
@@ -47,4 +47,3 @@ Expected:
 Actual:
 - With `number_of_routing_shards`: Documents are correctly distributed
 - Without `number_of_routing_shards`: All documents go to the same shard
-
