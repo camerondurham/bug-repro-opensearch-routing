@@ -203,6 +203,7 @@ insert_test_documents() {
 check_shards_distribution() {
     local index_name=$1
     local expected_shards=$2
+    local allow_change=$3
     local routing_value="42"
 
     echo "Checking shard distribution for routing value ${routing_value}:"
@@ -220,28 +221,43 @@ check_shards_distribution() {
     
     if [ "$shard_count" -eq "$expected_shards" ]; then
         echo "✅ PASS: Documents are correctly distributed across ${expected_shards} shards"
-    else
-        echo "❌ FAIL: Documents are routed to ${shard_count} shard(s) instead of ${expected_shards}"
+        return 0
     fi
+
+    if [ "$allow_change" = true ]; then
+        echo "ℹ️ NOTE: Behavior changed (expected ${expected_shards}, observed ${shard_count})"
+        return 0
+    fi
+
+    echo "❌ FAIL: Documents are routed to ${shard_count} shard(s) instead of ${expected_shards}"
+    return 1
 }
 
 demonstrate_routing_bug() {
     echo "=== Testing with number_of_routing_shards set ==="
     create_index "test_with_routing" true
     insert_test_documents "test_with_routing"
-    check_shards_distribution "test_with_routing" 2
+    if ! check_shards_distribution "test_with_routing" 2 false; then
+        test_failures=$((test_failures + 1))
+    fi
     echo
 
     echo "=== Testing without number_of_routing_shards set ==="
     create_index "test_without_routing" false
     insert_test_documents "test_without_routing"
-    check_shards_distribution "test_without_routing" 1
+    if ! check_shards_distribution "test_without_routing" 1 true; then
+        test_failures=$((test_failures + 1))
+    fi
     
     echo -e "\n=== Test Summary ==="
     echo "The bug is present if:"
     echo "1. Test with number_of_routing_shards passes (shows 2 shards)"
-    echo "2. Test without number_of_routing_shards passes (shows 1 shard)"
-    echo "This demonstrates that routing_partition_size is ignored when number_of_routing_shards is not set"
+    echo "2. Test without number_of_routing_shards shows 1 shard (note if behavior changed)"
+    echo "This demonstrates whether routing_partition_size is ignored when number_of_routing_shards is not set"
+
+    if [ "$test_failures" -gt 0 ]; then
+        return 1
+    fi
 }
 
 if ! command -v docker &> /dev/null; then
@@ -260,7 +276,10 @@ if ! check_opensearch; then
     exit 1
 fi
 
-demonstrate_routing_bug | tee "$TEST_RESULTS_FILE"
+test_failures=0
+if ! demonstrate_routing_bug | tee "$TEST_RESULTS_FILE"; then
+    exit 1
+fi
 
 if [ -n "$OPENSEARCH_CONTAINER_ID" ]; then
     echo "Stopping OpenSearch container ${OPENSEARCH_CONTAINER_ID}..."
