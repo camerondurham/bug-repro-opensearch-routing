@@ -3,6 +3,8 @@ name: Test OpenSearch Routing Bug
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   schedule:
     - cron: '0 0 * * 0'  # Run every Sunday at midnight UTC
   workflow_dispatch:  # Allow manual triggers
@@ -42,4 +44,3 @@ jobs:
           echo "Tests failed for OpenSearch ${{ matrix.opensearch-version }}"
           exit 1
         fi
-
