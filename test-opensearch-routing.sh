@@ -1,9 +1,12 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 OPENSEARCH_URL="http://localhost:9200"
 OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
+NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-"6"}
+TEST_RESULTS_FILE=${TEST_RESULTS_FILE:-"test-results.txt"}
+OPENSEARCH_CONTAINER_ID=""
 
 echo "Testing OpenSearch version: ${OPENSEARCH_VERSION}"
 
@@ -96,10 +99,6 @@ check_opensearch() {
         # Wait a bit before checking logs to give the container time to output initial logs
         sleep 5
         
-        # Show container logs for debugging
-        echo "Container logs:"
-        docker logs "$container_id"
-        
         echo "Waiting for OpenSearch to start..."
         local max_wait=120  # Increased maximum wait time in seconds
         local elapsed=0
@@ -119,9 +118,6 @@ check_opensearch() {
                     docker logs "$container_id"
                     return 1
                 fi
-                # Show recent logs
-                echo "Recent logs:"
-                docker logs --tail 10 "$container_id"
             fi
             
             echo -n "."
@@ -133,6 +129,7 @@ check_opensearch() {
         
         if [ "$success" = true ]; then
             echo "OpenSearch is ready after ${elapsed} seconds!"
+            OPENSEARCH_CONTAINER_ID="$container_id"
             return 0
         else
             echo "Timeout waiting for OpenSearch to start after ${max_wait} seconds!"
@@ -154,38 +151,28 @@ create_index() {
 
     curl -s -XDELETE "${OPENSEARCH_URL}/${index_name}" > /dev/null
 
+    local routing_shards_setting=""
     if [ "$with_routing_shards" = true ]; then
-        settings='{
-            "settings": {
-                "index": {
-                    "number_of_shards": "90",
-                    "number_of_routing_shards": "90",
-                    "number_of_replicas": "0",
-                    "routing_partition_size": "2"
-                }
-            },
-            "mappings": {
-                "_routing": {
-                    "required": true
-                }
-            }
-        }'
-    else
-        settings='{
-            "settings": {
-                "index": {
-                    "number_of_shards": "90",
-                    "number_of_replicas": "0",
-                    "routing_partition_size": "2"
-                }
-            },
-            "mappings": {
-                "_routing": {
-                    "required": true
-                }
-            }
-        }'
+        routing_shards_setting=",\n                    \"number_of_routing_shards\": \"${NUMBER_OF_SHARDS}\""
     fi
+
+    settings=$(cat <<EOF
+{
+    "settings": {
+        "index": {
+            "number_of_shards": "${NUMBER_OF_SHARDS}",
+            "number_of_replicas": "0",
+            "routing_partition_size": "2"${routing_shards_setting}
+        }
+    },
+    "mappings": {
+        "_routing": {
+            "required": true
+        }
+    }
+}
+EOF
+    )
 
     echo "Creating index ${index_name}"
     curl -s -XPUT "${OPENSEARCH_URL}/${index_name}" \
@@ -197,19 +184,26 @@ insert_test_documents() {
     local index_name=$1
     local routing_value="42"
     local count=20
+    local bulk_file
+    bulk_file=$(mktemp)
 
     echo "Inserting ${count} test documents with routing=${routing_value}"
     for i in $(seq 1 $count); do
-        curl -s -XPUT "${OPENSEARCH_URL}/${index_name}/_doc/${i}?routing=${routing_value}" \
-            -H "Content-Type: application/json" \
-            -d "{\"client_id\":\"${routing_value}\"}" > /dev/null
+        printf '{"index":{"_id":"%s","routing":"%s"}}\n{"client_id":"%s"}\n' \
+            "$i" "$routing_value" "$routing_value" >> "$bulk_file"
     done
+
+    curl -s -XPOST "${OPENSEARCH_URL}/${index_name}/_bulk?refresh=true" \
+        -H "Content-Type: application/x-ndjson" \
+        --data-binary "@${bulk_file}" > /dev/null
+
+    rm -f "$bulk_file"
 }
 
 check_shards_distribution() {
     local index_name=$1
+    local expected_shards=$2
     local routing_value="42"
-    local expected_shards=2
 
     echo "Checking shard distribution for routing value ${routing_value}:"
     echo "Number of shards and their details:"
@@ -235,23 +229,20 @@ demonstrate_routing_bug() {
     echo "=== Testing with number_of_routing_shards set ==="
     create_index "test_with_routing" true
     insert_test_documents "test_with_routing"
-    check_shards_distribution "test_with_routing"
+    check_shards_distribution "test_with_routing" 2
     echo
 
     echo "=== Testing without number_of_routing_shards set ==="
     create_index "test_without_routing" false
     insert_test_documents "test_without_routing"
-    check_shards_distribution "test_without_routing"
+    check_shards_distribution "test_without_routing" 1
     
     echo -e "\n=== Test Summary ==="
     echo "The bug is present if:"
     echo "1. Test with number_of_routing_shards passes (shows 2 shards)"
-    echo "2. Test without number_of_routing_shards fails (shows 1 shard)"
+    echo "2. Test without number_of_routing_shards passes (shows 1 shard)"
     echo "This demonstrates that routing_partition_size is ignored when number_of_routing_shards is not set"
 }
-
-# Ensure we capture errors
-set -o pipefail
 
 if ! command -v docker &> /dev/null; then
     echo "Docker is not installed. Please install Docker first."
@@ -269,10 +260,9 @@ if ! check_opensearch; then
     exit 1
 fi
 
-demonstrate_routing_bug
+demonstrate_routing_bug | tee "$TEST_RESULTS_FILE"
 
-container_id=$(docker ps -q --filter "publish=9200")
-if [ ! -z "$container_id" ]; then
-    echo "Stopping OpenSearch container..."
-    docker stop "$container_id"
+if [ -n "$OPENSEARCH_CONTAINER_ID" ]; then
+    echo "Stopping OpenSearch container ${OPENSEARCH_CONTAINER_ID}..."
+    docker stop "$OPENSEARCH_CONTAINER_ID"
 fi
