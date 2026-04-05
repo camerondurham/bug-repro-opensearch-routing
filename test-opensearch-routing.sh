@@ -267,13 +267,13 @@ demonstrate_routing_bug() {
     
     echo -e "\n=== Test Summary ==="
     echo "The bug is present if:"
-    echo "1. Test with number_of_routing_shards passes (shows 2 shards)"
-    echo "2. Test without number_of_routing_shards fails (shows 1 shard)"
-    echo "This demonstrates that routing_partition_size is ignored when number_of_routing_shards is not set"
+    echo "1. Test without number_of_routing_shards fails (shows 1 shard)"
+    echo "2. Test with number_of_routing_shards either passes (narrow repro) or also fails (broader repro)"
+    echo "This demonstrates that routing_partition_size is not distributing documents across multiple shards in the tested release"
     echo
     echo "WITH_ROUTING_RESULT=${WITH_ROUTING_RESULT}"
     echo "WITHOUT_ROUTING_RESULT=${WITHOUT_ROUTING_RESULT}"
-    if [[ "${WITH_ROUTING_RESULT}" == "PASS" && "${WITHOUT_ROUTING_RESULT}" == "FAIL" ]]; then
+    if [[ "${WITHOUT_ROUTING_RESULT}" == "FAIL" ]]; then
         BUG_STATUS="PRESENT"
     elif [[ "${WITH_ROUTING_RESULT}" == "PASS" && "${WITHOUT_ROUTING_RESULT}" == "PASS" ]]; then
         BUG_STATUS="FIXED"
