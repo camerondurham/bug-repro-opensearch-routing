@@ -207,18 +207,31 @@ insert_test_documents() {
 
 check_shards_distribution() {
     local index_name=$1
-    local routing_value="42"
     local expected_shards=2
+    local shard_count=0
 
-    echo "Checking shard distribution for routing value ${routing_value}:"
-    echo "Number of shards and their details:"
-    
-    local response=$(curl -s -XGET "${OPENSEARCH_URL}/${index_name}/_search_shards?routing=${routing_value}")
-    
-    echo "$response" | jq -c '.shards[]'
-    
-    local shard_count=$(echo "$response" | jq '.shards | length')
-    
+    echo "Checking shard distribution for indexed documents:"
+    echo "Shards containing documents:"
+
+    for shard in $(seq 0 $((NUMBER_OF_SHARDS - 1))); do
+        local response
+        response=$(curl -s -XGET "${OPENSEARCH_URL}/${index_name}/_count?preference=_shards:${shard}" \
+            -H "Content-Type: application/json" \
+            -d '{"query":{"match_all":{}}}')
+
+        local doc_count
+        doc_count=$(echo "$response" | jq '.count')
+
+        if [ "$doc_count" -gt 0 ]; then
+            echo "{\"shard\":${shard},\"count\":${doc_count}}"
+            shard_count=$((shard_count + 1))
+        fi
+    done
+
+    if [ "$shard_count" -eq 0 ]; then
+        echo "(no indexed documents found)"
+    fi
+
     echo -e "\nResults for ${index_name}:"
     echo "Expected number of shards: ${expected_shards}"
     echo "Actual number of shards: ${shard_count}"
