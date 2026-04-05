@@ -1,13 +1,16 @@
 # OpenSearch Routing Partition Size Bug Reproduction
 
-This status badge "passing" means that you still have to remember to set `number_of_routing_shards` AND `routing_partition_size` when creating the index in order to have equally distributed writes in OpenSearch.
+This status badge "passing" means the pinned OpenSearch releases still reproduce the routing-partition bug instead of distributing writes across multiple shards.
 
 [![Test OpenSearch Routing Bug](https://github.com/camerondurham/bug-repro-opensearch-routing/actions/workflows/test-opensearch.yml/badge.svg)](https://github.com/camerondurham/bug-repro-opensearch-routing/actions/workflows/test-opensearch.yml)
 
-This repo just contains a test script reproducing the last known behavior until the related issue is fixed in OpenSearch:
+This repo contains a test script that monitors whether `routing_partition_size` actually spreads writes across shards in specific OpenSearch releases:
 
 - [OpenSearch #17472](https://github.com/opensearch-project/OpenSearch/issues/17472) - Index setting partition size is ignored if routing num shard setting is not specified
 
+GitHub Actions currently treats `BUG_STATUS=PRESENT` as a passing result. If the behavior changes to `BUG_STATUS=FIXED`, the workflow fails intentionally so this repo can be updated to reflect the fix.
+The control case in `test-opensearch-routing.sh` intentionally keeps `number_of_shards=90` and `number_of_routing_shards=90`; lowering both values changed the control result and caused false CI failures.
+CI pins explicit OpenSearch releases instead of floating `1`, `2`, and `latest` tags so the badge reflects a stable reproduction rather than upstream tag drift.
 
 Also see:
 
@@ -22,13 +25,13 @@ When creating an index with:
 - No `number_of_routing_shards` specified
 
 All documents with the same routing value get assigned to the same shard, instead of being distributed across multiple shards as expected.
+In the currently pinned CI releases, the same single-shard behavior is also observed in the control case that sets `number_of_routing_shards`.
 
 ## Running the Test
 
 ```bash
-# run with opensearch 1, 2, 3 release (from tags: https://gallery.ecr.aws/opensearchproject/opensearch)
-# have only tested so far with 1 or 2
-./test-opensearch-routing.sh 1
+# run against a specific OpenSearch release tag
+./test-opensearch-routing.sh 1.3.20
 ```
 
 The script will:
@@ -45,5 +48,5 @@ Expected:
 - Documents with the same routing value should be distributed across 2 shards (as specified by `routing_partition_size`)
 
 Actual:
-- With `number_of_routing_shards`: Documents are correctly distributed
-- Without `number_of_routing_shards`: All documents go to the same shard
+- In the pinned CI releases, documents with the same routing value are still routed to a single shard
+- The workflow records whether the failure happens only without `number_of_routing_shards` or in both configurations

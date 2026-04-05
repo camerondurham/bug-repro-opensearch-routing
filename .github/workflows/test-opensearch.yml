@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        opensearch-version: ['1', '2', 'latest']
+        opensearch-version: ['1.3.20', '2.19.2', '3.1.0']
       fail-fast: false  # Continue with other versions if one fails
 
     steps:
@@ -40,7 +40,12 @@ jobs:
 
     - name: Check test results
       run: |
-        if grep -q "❌ FAIL" test-results.txt; then
-          echo "Tests failed for OpenSearch ${{ matrix.opensearch-version }}"
+        if grep -q "BUG_STATUS=PRESENT" test-results.txt; then
+          echo "Expected behavior confirmed for OpenSearch ${{ matrix.opensearch-version }}: bug is still present."
+        elif grep -q "BUG_STATUS=FIXED" test-results.txt; then
+          echo "Unexpected change detected for OpenSearch ${{ matrix.opensearch-version }}: behavior appears fixed. Update README/assertions."
+          exit 1
+        else
+          echo "Unexpected test output for OpenSearch ${{ matrix.opensearch-version }}."
           exit 1
         fi

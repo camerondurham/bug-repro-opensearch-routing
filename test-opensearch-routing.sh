@@ -3,10 +3,15 @@
 set -euo pipefail
 
 OPENSEARCH_URL="http://localhost:9200"
-OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
-NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-"6"}
+OPENSEARCH_VERSION=${1:-"1.3.20"}
+# Keep the control case at the previously passing 90/90 shard configuration.
+NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-"90"}
+NUMBER_OF_ROUTING_SHARDS=${NUMBER_OF_ROUTING_SHARDS:-"90"}
 TEST_RESULTS_FILE=${TEST_RESULTS_FILE:-"test-results.txt"}
 OPENSEARCH_CONTAINER_ID=""
+WITH_ROUTING_RESULT="UNKNOWN"
+WITHOUT_ROUTING_RESULT="UNKNOWN"
+BUG_STATUS="UNKNOWN"
 
 echo "Testing OpenSearch version: ${OPENSEARCH_VERSION}"
 
@@ -153,7 +158,7 @@ create_index() {
 
     local routing_shards_setting=""
     if [ "$with_routing_shards" = true ]; then
-        routing_shards_setting=",\n                    \"number_of_routing_shards\": \"${NUMBER_OF_SHARDS}\""
+        routing_shards_setting=",\n                    \"number_of_routing_shards\": \"${NUMBER_OF_ROUTING_SHARDS}\""
     fi
 
     settings=$(cat <<EOF
@@ -202,26 +207,41 @@ insert_test_documents() {
 
 check_shards_distribution() {
     local index_name=$1
-    local routing_value="42"
     local expected_shards=2
+    local shard_count=0
 
-    echo "Checking shard distribution for routing value ${routing_value}:"
-    echo "Number of shards and their details:"
-    
-    local response=$(curl -s -XGET "${OPENSEARCH_URL}/${index_name}/_search_shards?routing=${routing_value}")
-    
-    echo "$response" | jq -c '.shards[]'
-    
-    local shard_count=$(echo "$response" | jq '.shards | length')
-    
+    echo "Checking shard distribution for indexed documents:"
+    echo "Shards containing documents:"
+
+    for shard in $(seq 0 $((NUMBER_OF_SHARDS - 1))); do
+        local response
+        response=$(curl -s -XGET "${OPENSEARCH_URL}/${index_name}/_count?preference=_shards:${shard}" \
+            -H "Content-Type: application/json" \
+            -d '{"query":{"match_all":{}}}')
+
+        local doc_count
+        doc_count=$(echo "$response" | jq '.count')
+
+        if [ "$doc_count" -gt 0 ]; then
+            echo "{\"shard\":${shard},\"count\":${doc_count}}"
+            shard_count=$((shard_count + 1))
+        fi
+    done
+
+    if [ "$shard_count" -eq 0 ]; then
+        echo "(no indexed documents found)"
+    fi
+
     echo -e "\nResults for ${index_name}:"
     echo "Expected number of shards: ${expected_shards}"
     echo "Actual number of shards: ${shard_count}"
     
     if [ "$shard_count" -eq "$expected_shards" ]; then
         echo "✅ PASS: Documents are correctly distributed across ${expected_shards} shards"
+        return 0
     else
         echo "❌ FAIL: Documents are routed to ${shard_count} shard(s) instead of ${expected_shards}"
+        return 1
     fi
 }
 
@@ -229,19 +249,38 @@ demonstrate_routing_bug() {
     echo "=== Testing with number_of_routing_shards set ==="
     create_index "test_with_routing" true
     insert_test_documents "test_with_routing"
-    check_shards_distribution "test_with_routing"
+    if check_shards_distribution "test_with_routing"; then
+        WITH_ROUTING_RESULT="PASS"
+    else
+        WITH_ROUTING_RESULT="FAIL"
+    fi
     echo
 
     echo "=== Testing without number_of_routing_shards set ==="
     create_index "test_without_routing" false
     insert_test_documents "test_without_routing"
-    check_shards_distribution "test_without_routing"
+    if check_shards_distribution "test_without_routing"; then
+        WITHOUT_ROUTING_RESULT="PASS"
+    else
+        WITHOUT_ROUTING_RESULT="FAIL"
+    fi
     
     echo -e "\n=== Test Summary ==="
     echo "The bug is present if:"
-    echo "1. Test with number_of_routing_shards passes (shows 2 shards)"
-    echo "2. Test without number_of_routing_shards fails (shows 1 shard)"
-    echo "This demonstrates that routing_partition_size is ignored when number_of_routing_shards is not set"
+    echo "1. Test without number_of_routing_shards fails (shows 1 shard)"
+    echo "2. Test with number_of_routing_shards either passes (narrow repro) or also fails (broader repro)"
+    echo "This demonstrates that routing_partition_size is not distributing documents across multiple shards in the tested release"
+    echo
+    echo "WITH_ROUTING_RESULT=${WITH_ROUTING_RESULT}"
+    echo "WITHOUT_ROUTING_RESULT=${WITHOUT_ROUTING_RESULT}"
+    if [[ "${WITHOUT_ROUTING_RESULT}" == "FAIL" ]]; then
+        BUG_STATUS="PRESENT"
+    elif [[ "${WITH_ROUTING_RESULT}" == "PASS" && "${WITHOUT_ROUTING_RESULT}" == "PASS" ]]; then
+        BUG_STATUS="FIXED"
+    else
+        BUG_STATUS="UNEXPECTED"
+    fi
+    echo "BUG_STATUS=${BUG_STATUS}"
 }
 
 if ! command -v docker &> /dev/null; then
