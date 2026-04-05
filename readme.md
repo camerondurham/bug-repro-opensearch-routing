@@ -9,7 +9,7 @@ This repo just contains a test script reproducing the last known behavior until 
 - [OpenSearch #17472](https://github.com/opensearch-project/OpenSearch/issues/17472) - Index setting partition size is ignored if routing num shard setting is not specified
 
 GitHub Actions currently treats `BUG_STATUS=PRESENT` as a passing result. If the behavior changes to `BUG_STATUS=FIXED`, the workflow fails intentionally so this repo can be updated to reflect the fix.
-
+The control case in `test-opensearch-routing.sh` intentionally keeps `number_of_shards=90` and `number_of_routing_shards=90`; lowering both values changed the control result and caused false CI failures.
 
 Also see:
 

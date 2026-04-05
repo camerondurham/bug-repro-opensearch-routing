@@ -4,7 +4,9 @@ set -euo pipefail
 
 OPENSEARCH_URL="http://localhost:9200"
 OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
-NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-"6"}
+# Keep the control case at the previously passing 90/90 shard configuration.
+NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-"90"}
+NUMBER_OF_ROUTING_SHARDS=${NUMBER_OF_ROUTING_SHARDS:-"90"}
 TEST_RESULTS_FILE=${TEST_RESULTS_FILE:-"test-results.txt"}
 OPENSEARCH_CONTAINER_ID=""
 WITH_ROUTING_RESULT="UNKNOWN"
@@ -156,7 +158,7 @@ create_index() {
 
     local routing_shards_setting=""
     if [ "$with_routing_shards" = true ]; then
-        routing_shards_setting=",\n                    \"number_of_routing_shards\": \"${NUMBER_OF_SHARDS}\""
+        routing_shards_setting=",\n                    \"number_of_routing_shards\": \"${NUMBER_OF_ROUTING_SHARDS}\""
     fi
 
     settings=$(cat <<EOF
