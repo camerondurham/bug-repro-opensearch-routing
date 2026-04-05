@@ -7,6 +7,9 @@ OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
 NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-"6"}
 TEST_RESULTS_FILE=${TEST_RESULTS_FILE:-"test-results.txt"}
 OPENSEARCH_CONTAINER_ID=""
+WITH_ROUTING_RESULT="UNKNOWN"
+WITHOUT_ROUTING_RESULT="UNKNOWN"
+BUG_STATUS="UNKNOWN"
 
 echo "Testing OpenSearch version: ${OPENSEARCH_VERSION}"
 
@@ -220,8 +223,10 @@ check_shards_distribution() {
     
     if [ "$shard_count" -eq "$expected_shards" ]; then
         echo "✅ PASS: Documents are correctly distributed across ${expected_shards} shards"
+        return 0
     else
         echo "❌ FAIL: Documents are routed to ${shard_count} shard(s) instead of ${expected_shards}"
+        return 1
     fi
 }
 
@@ -229,19 +234,38 @@ demonstrate_routing_bug() {
     echo "=== Testing with number_of_routing_shards set ==="
     create_index "test_with_routing" true
     insert_test_documents "test_with_routing"
-    check_shards_distribution "test_with_routing"
+    if check_shards_distribution "test_with_routing"; then
+        WITH_ROUTING_RESULT="PASS"
+    else
+        WITH_ROUTING_RESULT="FAIL"
+    fi
     echo
 
     echo "=== Testing without number_of_routing_shards set ==="
     create_index "test_without_routing" false
     insert_test_documents "test_without_routing"
-    check_shards_distribution "test_without_routing"
+    if check_shards_distribution "test_without_routing"; then
+        WITHOUT_ROUTING_RESULT="PASS"
+    else
+        WITHOUT_ROUTING_RESULT="FAIL"
+    fi
     
     echo -e "\n=== Test Summary ==="
     echo "The bug is present if:"
     echo "1. Test with number_of_routing_shards passes (shows 2 shards)"
     echo "2. Test without number_of_routing_shards fails (shows 1 shard)"
     echo "This demonstrates that routing_partition_size is ignored when number_of_routing_shards is not set"
+    echo
+    echo "WITH_ROUTING_RESULT=${WITH_ROUTING_RESULT}"
+    echo "WITHOUT_ROUTING_RESULT=${WITHOUT_ROUTING_RESULT}"
+    if [[ "${WITH_ROUTING_RESULT}" == "PASS" && "${WITHOUT_ROUTING_RESULT}" == "FAIL" ]]; then
+        BUG_STATUS="PRESENT"
+    elif [[ "${WITH_ROUTING_RESULT}" == "PASS" && "${WITHOUT_ROUTING_RESULT}" == "PASS" ]]; then
+        BUG_STATUS="FIXED"
+    else
+        BUG_STATUS="UNEXPECTED"
+    fi
+    echo "BUG_STATUS=${BUG_STATUS}"
 }
 
 if ! command -v docker &> /dev/null; then
