@@ -10,6 +10,7 @@ This repo just contains a test script reproducing the last known behavior until 
 
 GitHub Actions currently treats `BUG_STATUS=PRESENT` as a passing result. If the behavior changes to `BUG_STATUS=FIXED`, the workflow fails intentionally so this repo can be updated to reflect the fix.
 The control case in `test-opensearch-routing.sh` intentionally keeps `number_of_shards=90` and `number_of_routing_shards=90`; lowering both values changed the control result and caused false CI failures.
+CI pins explicit OpenSearch releases instead of floating `1`, `2`, and `latest` tags so the badge reflects a stable reproduction rather than upstream tag drift.
 
 Also see:
 
@@ -28,9 +29,8 @@ All documents with the same routing value get assigned to the same shard, instea
 ## Running the Test
 
 ```bash
-# run with opensearch 1, 2, 3 release (from tags: https://gallery.ecr.aws/opensearchproject/opensearch)
-# have only tested so far with 1 or 2
-./test-opensearch-routing.sh 1
+# run against a specific OpenSearch release tag
+./test-opensearch-routing.sh 1.3.20
 ```
 
 The script will:

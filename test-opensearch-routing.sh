@@ -3,7 +3,7 @@
 set -euo pipefail
 
 OPENSEARCH_URL="http://localhost:9200"
-OPENSEARCH_VERSION=${1:-"1"}  # Default to latest 1.x
+OPENSEARCH_VERSION=${1:-"1.3.20"}
 # Keep the control case at the previously passing 90/90 shard configuration.
 NUMBER_OF_SHARDS=${NUMBER_OF_SHARDS:-"90"}
 NUMBER_OF_ROUTING_SHARDS=${NUMBER_OF_ROUTING_SHARDS:-"90"}

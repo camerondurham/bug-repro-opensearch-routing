@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        opensearch-version: ['1', '2', 'latest']
+        opensearch-version: ['1.3.20', '2.19.2', '3.1.0']
       fail-fast: false  # Continue with other versions if one fails
 
     steps:
